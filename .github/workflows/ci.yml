@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby-version: ["2.7", "3.1", "3.3"]
+        ruby-version: ["3.2", "3.3"]
 
     steps:
       - name: Checkout
@@ -26,7 +26,7 @@ jobs:
       - name: Bundle install
         run: |
           bundle config set frozen false
-          bundle install --jobs 4 --retry 3
+          bundle install --full-index --jobs 4 --retry 3
 
       - name: Lint
         run: bundle exec rubocop
