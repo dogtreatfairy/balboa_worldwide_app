@@ -44,6 +44,44 @@ value. These properties are:
  * pump*
  * light*
 
+### Operational logging (Loki/ELK/Grafana friendly)
+
+The MQTT bridge emits structured JSON retry logs on reconnect attempts with
+`event: "bwa_mqtt_bridge_retry"`.
+
+Example log payload:
+
+```json
+{
+  "event": "bwa_mqtt_bridge_retry",
+  "error_class": "Errno::ECONNRESET",
+  "error_message": "Connection reset by peer",
+  "attempt": 3,
+  "base_delay": 1,
+  "max_delay": 60,
+  "capped_delay": 4,
+  "delay": 3.14,
+  "jitter": true
+}
+```
+
+Recommended indexed fields:
+
+ * `event`
+ * `error_class`
+ * `attempt`
+ * `delay`
+ * `capped_delay`
+
+Recommended dashboards/alerts:
+
+ * Retry rate over time (`count(event=bwa_mqtt_bridge_retry)`)
+ * Top error classes by frequency (`group by error_class`)
+ * High retry attempt bursts (e.g. `attempt >= 5`)
+
+In Loki/Promtail pipelines or ELK ingest pipelines, parse each line as JSON and
+promote `event` and `error_class` to labels/tags for fast filtering.
+
 ## OpenHAB
 If you're going to integrate with OpenHAB, you'll need to install the
 `MQTT Binding` in `Add-ons`. Then go to Inbox, click `+`, select `MQTT Binding`

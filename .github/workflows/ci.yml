@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ruby:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby-version: ["2.7", "3.1", "3.3"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby-version }}
+          bundler-cache: true
+
+      - name: Lint
+        run: bundle exec rubocop
+
+      - name: Test (if present)
+        shell: bash
+        run: |
+          if [ -d spec ]; then
+            bundle exec rspec
+          elif [ -d test ]; then
+            if bundle exec rake -T | grep -q "\btest\b"; then
+              bundle exec rake test
+            else
+              echo "No explicit test task found; skipping tests"
+            fi
+          else
+            echo "No spec/ or test/ directory found; skipping tests"
+          fi

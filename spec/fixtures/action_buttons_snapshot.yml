@@ -1,0 +1,16 @@
+---
+- name: clear-notification
+  format:
+    - clear_notification
+  object_id: clear_notification
+  payload_press: clear_notification
+- name: normal-operation
+  format:
+    - normal_operation
+  object_id: normal_operation
+  payload_press: normal_operation
+- name: soak
+  format:
+    - soak
+  object_id: soak
+  payload_press: soak

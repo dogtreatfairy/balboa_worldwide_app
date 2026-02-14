@@ -12,6 +12,9 @@ require "bwa/discovery"
 require "bwa/version"
 
 class MQTTBridge
+  DEFAULT_RETRY_BASE_DELAY = 1
+  DEFAULT_RETRY_MAX_DELAY = 60
+
   SIMPLE_PROPERTIES = %i[hold
                          priming
                          heating_mode
@@ -21,6 +24,41 @@ class MQTTBridge
                          current_temperature
                          target_temperature].freeze
   private_constant :SIMPLE_PROPERTIES
+
+  def self.retry_backoff(attempt,
+                         base_delay: DEFAULT_RETRY_BASE_DELAY,
+                         max_delay: DEFAULT_RETRY_MAX_DELAY,
+                         jitter: true,
+                         rng: Random)
+    raise ArgumentError, "attempt must be >= 1" if attempt < 1
+    raise ArgumentError, "base_delay must be > 0" unless base_delay.positive?
+    raise ArgumentError, "max_delay must be >= base_delay" if max_delay < base_delay
+
+    capped_delay = [base_delay * (2**(attempt - 1)), max_delay].min
+    delay = if jitter
+              half_delay = capped_delay / 2.0
+              half_delay + (rng.rand * half_delay)
+            else
+              capped_delay
+            end
+
+    {
+      attempt: attempt,
+      base_delay: base_delay,
+      max_delay: max_delay,
+      capped_delay: capped_delay,
+      delay: delay,
+      jitter: jitter
+    }
+  end
+
+  def self.retry_delay(attempt,
+                       base_delay: DEFAULT_RETRY_BASE_DELAY,
+                       max_delay: DEFAULT_RETRY_MAX_DELAY,
+                       jitter: true,
+                       rng: Random)
+    retry_backoff(attempt, base_delay: base_delay, max_delay: max_delay, jitter: jitter, rng: rng)[:delay]
+  end
 
   def initialize(mqtt_uri, bwa, device_id: "bwa", root_topic: "homie")
     Thread.abort_on_exception = true
@@ -153,41 +191,7 @@ class MQTTBridge
     end
 
     @homie.node("spa", "Hot Tub", @bwa.model) do |spa|
-      clear_notification = spa.property("clear-notification",
-                                        "Clear Notification",
-                                        :enum,
-                                        format: ["clear_notification"],
-                                        retained: false,
-                                        non_standard_value_check: allow_toggles) do |_value|
-        @bwa.toggle_item(:clear_notification)
-      end
-      clear_notification.hass_button(name: "Clear Notification",
-                                     object_id: "clear_notification",
-                                     payload_press: "clear_notification")
-
-      normal_operation = spa.property("normal-operation",
-                                      "Normal Operation",
-                                      :enum,
-                                      format: ["normal_operation"],
-                                      retained: false,
-                                      non_standard_value_check: allow_toggles) do |_value|
-        @bwa.toggle_item(:normal_operation)
-      end
-      normal_operation.hass_button(name: "Normal Operation",
-                                   object_id: "normal_operation",
-                                   payload_press: "normal_operation")
-
-      soak = spa.property("soak",
-                          "Soak",
-                          :enum,
-                          format: ["soak"],
-                          retained: false,
-                          non_standard_value_check: allow_toggles) do |_value|
-        @bwa.toggle_item(:soak)
-      end
-      soak.hass_button(name: "Soak",
-                       object_id: "soak",
-                       payload_press: "soak")
+      publish_action_buttons(spa, allow_toggles)
 
       spa.property("hold",
                    "Hold",
@@ -405,6 +409,44 @@ class MQTTBridge
     end
   end
 
+  def publish_action_buttons(spa, allow_toggles)
+    clear_notification = spa.property("clear-notification",
+                                      "Clear Notification",
+                                      :enum,
+                                      format: ["clear_notification"],
+                                      retained: false,
+                                      non_standard_value_check: allow_toggles) do |_value|
+      @bwa.toggle_item(:clear_notification)
+    end
+    clear_notification.hass_button(name: "Clear Notification",
+                                   object_id: "clear_notification",
+                                   payload_press: "clear_notification")
+
+    normal_operation = spa.property("normal-operation",
+                                    "Normal Operation",
+                                    :enum,
+                                    format: ["normal_operation"],
+                                    retained: false,
+                                    non_standard_value_check: allow_toggles) do |_value|
+      @bwa.toggle_item(:normal_operation)
+    end
+    normal_operation.hass_button(name: "Normal Operation",
+                                 object_id: "normal_operation",
+                                 payload_press: "normal_operation")
+
+    soak = spa.property("soak",
+                        "Soak",
+                        :enum,
+                        format: ["soak"],
+                        retained: false,
+                        non_standard_value_check: allow_toggles) do |_value|
+      @bwa.toggle_item(:soak)
+    end
+    soak.hass_button(name: "Soak",
+                     object_id: "soak",
+                     payload_press: "soak")
+  end
+
   def update_filter_cycles(prop, value)
     new_config = @bwa.filter_cycles.dup
     new_config.public_send(:"#{prop}=", value)
@@ -443,23 +485,46 @@ class MQTTBridge
   end
 end
 
-mqtt_uri = ARGV.shift
+if __FILE__ == $PROGRAM_NAME
+  mqtt_uri = ARGV.shift
+  static_spa_ip = ARGV[0]
+  attempt = 0
 
-if ARGV.empty?
-  spas = BWA::Discovery.discover
-  if spas.empty?
-    BWA.logger.fatal "Could not find spa!"
-    warn "Could not find spa!"
-    exit 1
+  loop do
+    begin
+      spa_ip = static_spa_ip
+      if spa_ip.nil?
+        spas = BWA::Discovery.discover
+        raise "Could not find spa!" if spas.empty?
+
+        spa_ip = "tcp://#{spas.first.first}/"
+      end
+
+      spa = BWA::Client.new(spa_ip)
+      spa.request_configuration
+      spa.request_filter_configuration
+      attempt = 0
+      MQTTBridge.new(mqtt_uri, spa)
+
+      # If bridge exits cleanly unexpectedly, restart it.
+      raise "Bridge exited unexpectedly"
+    rescue Interrupt
+      raise
+    rescue StandardError => e
+      attempt += 1
+      backoff = MQTTBridge.retry_backoff(attempt)
+      BWA.logger.error({
+        event: "bwa_mqtt_bridge_retry",
+        error_class: e.class.to_s,
+        error_message: e.message,
+        attempt: backoff[:attempt],
+        base_delay: backoff[:base_delay],
+        max_delay: backoff[:max_delay],
+        capped_delay: backoff[:capped_delay],
+        delay: backoff[:delay],
+        jitter: backoff[:jitter]
+      }.to_json)
+      sleep(backoff[:delay])
+    end
   end
-  spa_ip = "tcp://#{spas.first.first}/"
-else
-  spa_ip = ARGV[0]
 end
-
-spa = BWA::Client.new(spa_ip)
-
-spa.request_configuration
-spa.request_filter_configuration
-
-MQTTBridge.new(mqtt_uri, spa)
