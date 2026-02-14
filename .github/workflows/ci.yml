@@ -21,7 +21,12 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby-version }}
-          bundler-cache: true
+          bundler-cache: false
+
+      - name: Bundle install
+        run: |
+          bundle config set frozen false
+          bundle install --jobs 4 --retry 3
 
       - name: Lint
         run: bundle exec rubocop
