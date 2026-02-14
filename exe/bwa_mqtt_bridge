@@ -2,7 +2,6 @@
 # frozen_string_literal: true
 
 require "sd_notify"
-require "set"
 require "json"
 require "mqtt/homie/home_assistant"
 
@@ -491,40 +490,38 @@ if __FILE__ == $PROGRAM_NAME
   attempt = 0
 
   loop do
-    begin
-      spa_ip = static_spa_ip
-      if spa_ip.nil?
-        spas = BWA::Discovery.discover
-        raise "Could not find spa!" if spas.empty?
+    spa_ip = static_spa_ip
+    if spa_ip.nil?
+      spas = BWA::Discovery.discover
+      raise "Could not find spa!" if spas.empty?
 
-        spa_ip = "tcp://#{spas.first.first}/"
-      end
-
-      spa = BWA::Client.new(spa_ip)
-      spa.request_configuration
-      spa.request_filter_configuration
-      attempt = 0
-      MQTTBridge.new(mqtt_uri, spa)
-
-      # If bridge exits cleanly unexpectedly, restart it.
-      raise "Bridge exited unexpectedly"
-    rescue Interrupt
-      raise
-    rescue StandardError => e
-      attempt += 1
-      backoff = MQTTBridge.retry_backoff(attempt)
-      BWA.logger.error({
-        event: "bwa_mqtt_bridge_retry",
-        error_class: e.class.to_s,
-        error_message: e.message,
-        attempt: backoff[:attempt],
-        base_delay: backoff[:base_delay],
-        max_delay: backoff[:max_delay],
-        capped_delay: backoff[:capped_delay],
-        delay: backoff[:delay],
-        jitter: backoff[:jitter]
-      }.to_json)
-      sleep(backoff[:delay])
+      spa_ip = "tcp://#{spas.first.first}/"
     end
+
+    spa = BWA::Client.new(spa_ip)
+    spa.request_configuration
+    spa.request_filter_configuration
+    attempt = 0
+    MQTTBridge.new(mqtt_uri, spa)
+
+    # If bridge exits cleanly unexpectedly, restart it.
+    raise "Bridge exited unexpectedly"
+  rescue Interrupt
+    raise
+  rescue => e
+    attempt += 1
+    backoff = MQTTBridge.retry_backoff(attempt)
+    BWA.logger.error({
+      event: "bwa_mqtt_bridge_retry",
+      error_class: e.class.to_s,
+      error_message: e.message,
+      attempt: backoff[:attempt],
+      base_delay: backoff[:base_delay],
+      max_delay: backoff[:max_delay],
+      capped_delay: backoff[:capped_delay],
+      delay: backoff[:delay],
+      jitter: backoff[:jitter]
+    }.to_json)
+    sleep(backoff[:delay])
   end
 end

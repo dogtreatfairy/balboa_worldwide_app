@@ -4,39 +4,39 @@ require "yaml"
 
 require_relative "../exe/bwa_mqtt_bridge"
 
+PropertyRecord = Struct.new(:name, :description, :type, :options, :callback, :button, keyword_init: true)
+
+class FakeProperty
+  attr_reader :record
+
+  def initialize(record)
+    @record = record
+  end
+
+  def hass_button(**kwargs)
+    record.button = kwargs
+  end
+end
+
+class FakeSpa
+  attr_reader :properties
+
+  def initialize
+    @properties = []
+  end
+
+  def property(name, description, type, **kwargs, &block)
+    record = PropertyRecord.new(name: name,
+                                description: description,
+                                type: type,
+                                options: kwargs,
+                                callback: block)
+    properties << record
+    FakeProperty.new(record)
+  end
+end
+
 RSpec.describe MQTTBridge do
-  PropertyRecord = Struct.new(:name, :description, :type, :options, :callback, :button, keyword_init: true)
-
-  class FakeProperty
-    attr_reader :record
-
-    def initialize(record)
-      @record = record
-    end
-
-    def hass_button(**kwargs)
-      record.button = kwargs
-    end
-  end
-
-  class FakeSpa
-    attr_reader :properties
-
-    def initialize
-      @properties = []
-    end
-
-    def property(name, description, type, **kwargs, &block)
-      record = PropertyRecord.new(name: name,
-                                  description: description,
-                                  type: type,
-                                  options: kwargs,
-                                  callback: block)
-      properties << record
-      FakeProperty.new(record)
-    end
-  end
-
   describe "#publish_action_buttons" do
     it "publishes three Home Assistant button properties with single enum values" do
       bridge = described_class.allocate
@@ -51,17 +51,17 @@ RSpec.describe MQTTBridge do
 
       bridge.send(:publish_action_buttons, spa, allow_toggles)
 
-      expect(spa.properties.map(&:name)).to eq(["clear-notification", "normal-operation", "soak"])
-      expect(spa.properties.map { |prop| prop.options[:format] }).to eq([
-        ["clear_notification"],
-        ["normal_operation"],
-        ["soak"]
-      ])
-      expect(spa.properties.map { |prop| prop.button[:payload_press] }).to eq([
-        "clear_notification",
-        "normal_operation",
-        "soak"
-      ])
+      expect(spa.properties.map(&:name)).to eq(%w[clear-notification normal-operation soak])
+      expect(spa.properties.map { |prop| prop.options[:format] }).to eq(
+        [
+          ["clear_notification"],
+          ["normal_operation"],
+          ["soak"]
+        ]
+      )
+      expect(spa.properties.map { |prop| prop.button[:payload_press] }).to eq(
+        %w[clear_notification normal_operation soak]
+      )
 
       spa.properties[0].callback.call("clear_notification")
       spa.properties[1].callback.call("normal_operation")
@@ -79,11 +79,13 @@ RSpec.describe MQTTBridge do
 
       bridge.send(:publish_action_buttons, spa, ->(value) { value })
 
-      expect(spa.properties.map { |prop| [prop.name, prop.button[:object_id], prop.button[:payload_press]] }).to eq([
-        ["clear-notification", "clear_notification", "clear_notification"],
-        ["normal-operation", "normal_operation", "normal_operation"],
-        ["soak", "soak", "soak"]
-      ])
+      expect(spa.properties.map { |prop| [prop.name, prop.button[:object_id], prop.button[:payload_press]] }).to eq(
+        [
+          %w[clear-notification clear_notification clear_notification],
+          %w[normal-operation normal_operation normal_operation],
+          %w[soak soak soak]
+        ]
+      )
     end
 
     it "matches the action button discovery snapshot" do
