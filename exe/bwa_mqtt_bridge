@@ -153,23 +153,41 @@ class MQTTBridge
     end
 
     @homie.node("spa", "Hot Tub", @bwa.model) do |spa|
-      command = spa.property("command",
-                             "Send a command to the tub",
-                             :enum,
-                             format: %w[normal_operation clear_notification soak],
-                             retained: false,
-                             non_standard_value_check: allow_toggles) do |value|
-        @bwa.toggle_item(value.to_sym)
+      clear_notification = spa.property("clear-notification",
+                                        "Clear Notification",
+                                        :enum,
+                                        format: ["clear_notification"],
+                                        retained: false,
+                                        non_standard_value_check: allow_toggles) do |_value|
+        @bwa.toggle_item(:clear_notification)
       end
-      command.hass_button(name: "Clear Notification",
-                          object_id: "clear_notification",
-                          payload_press: "clear_notification")
-      command.hass_button(name: "Normal Operation",
-                          object_id: "normal_operation",
-                          payload_press: "normal_operation")
-      command.hass_button(name: "Soak",
-                          object_id: "soak",
-                          payload_press: "soak")
+      clear_notification.hass_button(name: "Clear Notification",
+                                     object_id: "clear_notification",
+                                     payload_press: "clear_notification")
+
+      normal_operation = spa.property("normal-operation",
+                                      "Normal Operation",
+                                      :enum,
+                                      format: ["normal_operation"],
+                                      retained: false,
+                                      non_standard_value_check: allow_toggles) do |_value|
+        @bwa.toggle_item(:normal_operation)
+      end
+      normal_operation.hass_button(name: "Normal Operation",
+                                   object_id: "normal_operation",
+                                   payload_press: "normal_operation")
+
+      soak = spa.property("soak",
+                          "Soak",
+                          :enum,
+                          format: ["soak"],
+                          retained: false,
+                          non_standard_value_check: allow_toggles) do |_value|
+        @bwa.toggle_item(:soak)
+      end
+      soak.hass_button(name: "Soak",
+                       object_id: "soak",
+                       payload_press: "soak")
 
       spa.property("hold",
                    "Hold",
