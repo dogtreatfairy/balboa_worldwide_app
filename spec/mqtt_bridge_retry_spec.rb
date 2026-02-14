@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../exe/bwa_mqtt_bridge"
+load File.expand_path("../exe/bwa_mqtt_bridge", __dir__) unless defined?(MQTTBridge)
 
 RSpec.describe MQTTBridge do
   describe ".retry_backoff" do

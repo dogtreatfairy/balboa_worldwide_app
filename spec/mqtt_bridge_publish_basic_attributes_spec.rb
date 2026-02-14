@@ -2,7 +2,7 @@
 
 require "yaml"
 
-require_relative "../exe/bwa_mqtt_bridge"
+load File.expand_path("../exe/bwa_mqtt_bridge", __dir__) unless defined?(MQTTBridge)
 
 PropertyRecord = Struct.new(:name, :description, :type, :options, :callback, :button, keyword_init: true)
 
